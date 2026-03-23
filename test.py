@@ -4,7 +4,7 @@ import logging
 from dotenv import load_dotenv
 import os
 import time
-from apirequest import get_metar, get_flight_by_callsign, get_f1_circuits, get_airport_info, get_pilots_summary, count_flights, filter_flights_by_airport, search_flight_by_user_id, search_flight_by_callsign
+from apirequest import get_metar, get_flight_by_callsign, get_f1_circuits, get_airport_info, get_next_f1_race, get_pilots_summary, count_flights, filter_flights_by_airport, search_flight_by_user_id, search_flight_by_callsign
 
 
 load_dotenv()
@@ -45,7 +45,7 @@ async def comandos(ctx):
         "7. `!vuelos_totales` - Muestra el total de vuelos activos en IVAO.\n"
         "8. `!vuelos_aeropuerto <ICAO> [tipo]` - Filtra vuelos por aeropuerto (tipo: departure, arrival, alternative; por defecto: arrival).\n"
         "9. `!vuelo_usuario <user_id>` - Busca vuelo por ID de usuario en IVAO.\n"
-        "10. `!vuelo_callsign <callsign>` - Busca vuelo por callsign en IVAO."
+        "10. `!callsign <callsign>` - Busca vuelo por callsign en IVAO."
     )
     await ctx.send(commands_list)
 
@@ -96,6 +96,11 @@ async def circuits(ctx, *, query: str):
     report = get_f1_circuits(query)
     await ctx.send(report)
 
+
+@bot.command()
+async def proximaF1(ctx):
+    report = get_next_f1_race()
+    await ctx.send(report)
 
 @bot.command()
 @commands.cooldown(1, 10, commands.BucketType.user)
@@ -160,10 +165,10 @@ async def vuelo_usuario(ctx, user_id: int):
         await ctx.send("Error al obtener datos de vuelos.")
 
 @bot.command()
-async def vuelo_callsign(ctx, callsign: str):
+async def callsign(ctx, callsign: str):
     callsign = callsign.strip().upper()
     if not callsign:
-        await ctx.send("Por favor, envía un callsign válido, por ejemplo: `!vuelo_callsign PTR2125`")
+        await ctx.send("Por favor, envía un callsign válido, por ejemplo: `!callsign PTR2125`")
         return
 
     data = get_pilots_summary()
@@ -175,16 +180,30 @@ async def vuelo_callsign(ctx, callsign: str):
             status = flight.get('lastTrack', {}).get('state', 'N/A')
             altitude = flight.get('lastTrack', {}).get('altitude', 'N/A')
             groundspeed = flight.get('lastTrack', {}).get('groundSpeed', 'N/A')
+            arrival_distance = flight.get('lastTrack', {}).get('arrivalDistance', 'N/A')
             airplane = flight.get('flightPlan', {}).get('aircraft', {}).get('model', 'N/A')
-
+            
+            eta_horas = 'N/A'
+            eta_formateada = 'N/A'
+            if groundspeed != 'N/A' and groundspeed != 0 and arrival_distance != 'N/A':
+                eta_segundos = (arrival_distance / groundspeed) * 3600
+                eta_horas = eta_segundos / 3600
+                timestamp_unix = int(time.time() + eta_segundos)
+                eta_formateada = f"<t:{timestamp_unix}:f>"
+            
             message = (
                 f"✈️ **Vuelo: {callsign}**\n"
                 f"🛫 De: {departure} → 🛬 a: {arrival}\n"
                 f"📍 Estado: {status}\n"
                 f"📊 Altitud: {altitude} ft\n"
                 f"💨 Velocidad: {groundspeed} kt\n"
+                f"📏 Distancia a destino: {arrival_distance} NM\n"
                 f"🛩️ Avión: {airplane}"
             )
+            if isinstance(eta_horas, float):
+                message += f"\n⏰ Tiempo estimado: {eta_horas:.2f} horas\n"
+                message += f"🎯 Llegada estimada: {eta_formateada}"
+            
             await ctx.send(message)
         else:
             await ctx.send(f"No se encontró información de vuelo para `{callsign}`.")
